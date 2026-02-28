@@ -34,7 +34,25 @@ const TABS = [
   { key: "child", label: "孩子版", icon: "🎮" },
 ];
 
-function ReportResult({ result, teacher, files, note, onReset }) {
+const QUEUE_KEY = "classroom_upload_queue";
+const MAX_QUEUE = 20;
+
+function loadQueue() {
+  try {
+    const raw = localStorage.getItem(QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveQueue(items) {
+  try {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(items.slice(0, MAX_QUEUE)));
+  } catch { /* ignore */ }
+}
+
+function ReportResult({ result, teacher, files, note, onReset, onBackToQueue }) {
   const [activeTab, setActiveTab] = useState("teacher");
   const reports = result?.reports ?? {};
   const students = result?.students ?? [];
@@ -116,17 +134,47 @@ function ReportResult({ result, teacher, files, note, onReset }) {
         </div>
       )}
 
-      <button className="btn-primary" onClick={onReset} style={{
-        width: "100%", padding: "13px", borderRadius: 14, border: "none", marginTop: 16,
-        background: "linear-gradient(135deg, #FF6B6B, #FF8E53)",
-        color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
-        fontFamily: "'Nunito'", boxShadow: "0 4px 16px rgba(255,107,107,0.3)",
-      }}>继续上传下一节课</button>
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        {onBackToQueue && (
+          <button onClick={onBackToQueue} style={{
+            flex: 1, padding: "13px", borderRadius: 14, border: "1.5px solid #EEE5F5",
+            background: "white", color: "#886699", fontSize: 14, fontWeight: 600, cursor: "pointer",
+          }}>← 分析队列</button>
+        )}
+        <button className="btn-primary" onClick={onReset} style={{
+          flex: onBackToQueue ? 1 : 1, padding: "13px", borderRadius: 14, border: "none",
+          background: "linear-gradient(135deg, #FF6B6B, #FF8E53)",
+          color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'Nunito'", boxShadow: "0 4px 16px rgba(255,107,107,0.3)",
+        }}>继续上传</button>
+      </div>
+    </div>
+  );
+}
+
+function QueueItem({ item, onView }) {
+  const status = item.status;
+  const ts = item.ts ? new Date(item.ts).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  const statusText = status === "completed" ? "已完成" : status === "failed" ? "失败" : "分析中";
+  const statusColor = status === "completed" ? "#22c55e" : status === "failed" ? "#ef4444" : "#f59e0b";
+
+  return (
+    <div onClick={() => onView(item)} style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      padding: "12px 14px", borderRadius: 12, background: "#FAF5FF", border: "1px solid #EEE5F5",
+      cursor: "pointer", marginBottom: 8,
+    }}>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#444" }}>{item.teacher || "未知"}</div>
+        <div style={{ fontSize: 11, color: "#BBAACC", marginTop: 2 }}>{ts} · {item.filesCount || 0} 个文件</div>
+      </div>
+      <span style={{ fontSize: 12, fontWeight: 600, color: statusColor }}>{statusText}</span>
     </div>
   );
 }
 
 export default function App() {
+  const [view, setView] = useState("upload"); // "upload" | "queue"
   const [step, setStep] = useState(0);
   const [teacher, setTeacher] = useState("");
   const [note, setNote] = useState("");
@@ -134,7 +182,9 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState(null); // { students, reports: { teacher, parent, child } }
+  const [result, setResult] = useState(null);
+  const [queue, setQueue] = useState(loadQueue);
+  const [selectedQueueItem, setSelectedQueueItem] = useState(null); // 从队列点进查看详情
   const fileRef = useRef();
 
   const canNext = teacher !== "";
@@ -155,6 +205,19 @@ export default function App() {
   const handleSubmit = async () => {
     setLoading(true);
     setError("");
+    const jobId = Date.now().toString();
+    const newJob = {
+      id: jobId,
+      ts: Date.now(),
+      teacher,
+      filesCount: files.length,
+      note: note || "",
+      status: "loading",
+    };
+    const nextQueue = [newJob, ...queue];
+    setQueue(nextQueue);
+    saveQueue(nextQueue);
+
     try {
       const textFiles = files.filter(f => f.name.match(/\.(txt|docx|doc)$/i));
       const audioFiles = files.filter(f => f.name.match(/\.(mp3|mp4|m4a|wav)$/i));
@@ -191,11 +254,24 @@ export default function App() {
 
       if (!res.ok) throw new Error(`请求失败: ${res.status}`);
       const json = await res.json();
+      if (json.success === false) {
+        setError(json.error || json.message || "分析失败，请重试");
+        const failedQueue = nextQueue.map(j => j.id === jobId ? { ...j, status: "failed", error: json.error } : j);
+        setQueue(failedQueue);
+        saveQueue(failedQueue);
+        return;
+      }
       const parsed = parseCozeOutput(json?.data ?? json);
+      const completedQueue = nextQueue.map(j => j.id === jobId ? { ...j, status: "completed", result: parsed } : j);
+      setQueue(completedQueue);
+      saveQueue(completedQueue);
       setResult(parsed);
       setStep(2);
     } catch (err) {
       setError("提交失败，请重试。错误：" + err.message);
+      const failedQueue = nextQueue.map(j => j.id === jobId ? { ...j, status: "failed", error: err.message } : j);
+      setQueue(failedQueue);
+      saveQueue(failedQueue);
     } finally {
       setLoading(false);
     }
@@ -240,10 +316,22 @@ export default function App() {
       `}</style>
 
       <div style={{ width: "100%", maxWidth: 440 }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
           <div style={{ fontSize: 32, marginBottom: 6 }}>🎓</div>
           <div style={{ fontFamily: "'Nunito'", fontSize: 20, fontWeight: 900, color: "#2D2D3A" }}>课堂记录上传</div>
           <div style={{ fontSize: 12, color: "#BBAACC", marginTop: 2 }}>上传完成，系统自动分析处理</div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={() => { setView("upload"); setSelectedQueueItem(null); }} style={{
+              padding: "6px 14px", borderRadius: 20, border: "none",
+              background: view === "upload" ? "linear-gradient(135deg, #FF6B6B, #FF8E53)" : "#F0EEF5",
+              color: view === "upload" ? "white" : "#BBAACC", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}>上传</button>
+            <button onClick={() => { setView("queue"); setSelectedQueueItem(null); }} style={{
+              padding: "6px 14px", borderRadius: 20, border: "none",
+              background: view === "queue" ? "linear-gradient(135deg, #FF6B6B, #FF8E53)" : "#F0EEF5",
+              color: view === "queue" ? "white" : "#BBAACC", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}>分析队列</button>
+          </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 28 }}>
@@ -274,6 +362,46 @@ export default function App() {
 
         <div style={{ background: "white", borderRadius: 24, padding: "28px 24px", boxShadow: "0 8px 40px rgba(0,0,0,0.08)" }}>
 
+          {view === "queue" ? (
+            selectedQueueItem ? (
+              selectedQueueItem.status === "failed" ? (
+                <div style={{ padding: "16px 0" }}>
+                  <div style={{ fontSize: 48, marginBottom: 12, textAlign: "center" }}>⚠️</div>
+                  <div style={{ fontFamily: "'Nunito'", fontSize: 16, fontWeight: 800, color: "#2D2D3A", marginBottom: 8, textAlign: "center" }}>分析失败</div>
+                  <div style={{ padding: "12px", background: "#FFF0F0", borderRadius: 12, fontSize: 12, color: "#c44", marginBottom: 16 }}>{selectedQueueItem.error || "未知错误"}</div>
+                  <button onClick={() => setSelectedQueueItem(null)} style={{
+                    width: "100%", padding: "12px", borderRadius: 14, border: "1.5px solid #EEE5F5",
+                    background: "white", color: "#886699", fontSize: 14, fontWeight: 600, cursor: "pointer",
+                  }}>← 返回队列</button>
+                </div>
+              ) : (
+                <ReportResult
+                  result={selectedQueueItem.result}
+                  teacher={selectedQueueItem.teacher}
+                  files={[]}
+                  note={selectedQueueItem.note}
+                  onReset={() => setSelectedQueueItem(null)}
+                  onBackToQueue={() => setSelectedQueueItem(null)}
+                />
+              )
+            ) : (
+              <div style={{ padding: "8px 0" }}>
+                <div style={{ fontFamily: "'Nunito'", fontSize: 17, fontWeight: 800, color: "#2D2D3A", marginBottom: 16 }}>分析队列</div>
+                {queue.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "32px 0", color: "#BBAACC", fontSize: 13 }}>暂无记录，先去上传吧</div>
+                ) : (
+                  queue.map(item => (
+                    <QueueItem key={item.id} item={item} onView={(it) => setSelectedQueueItem(it)} />
+                  ))
+                )}
+                <button onClick={() => setView("upload")} style={{
+                  width: "100%", marginTop: 16, padding: "12px", borderRadius: 14, border: "1.5px solid #EEE5F5",
+                  background: "white", color: "#886699", fontSize: 14, fontWeight: 600, cursor: "pointer",
+                }}>← 返回上传</button>
+              </div>
+            )
+          ) : (
+          <>
           {step === 0 && (
             <div>
               <div style={{ fontFamily: "'Nunito'", fontSize: 17, fontWeight: 800, color: "#2D2D3A", marginBottom: 20 }}>
@@ -387,7 +515,16 @@ export default function App() {
           )}
 
           {step === 2 && (
-            <ReportResult result={result} teacher={teacher} files={files} note={note} onReset={reset} />
+            <ReportResult
+              result={result}
+              teacher={teacher}
+              files={files}
+              note={note}
+              onReset={reset}
+              onBackToQueue={() => { setView("queue"); setSelectedQueueItem(null); setStep(0); reset(); }}
+            />
+          )}
+          </>
           )}
         </div>
 

@@ -44,13 +44,15 @@ export default async function handler(req, res) {
   });
 
   try {
-    // Coze.site stream_run 直接传参，无需 workflow_id 包装
+    // Coze.site stream_run 直接传参。空文件不要传，否则 file_type 报错（必须为 image/video/audio/document/default）
     const requestBody = {
       teacher_name: req.body.teacher_name,
       remark: req.body.remark || "",
-      transcript_file: req.body.transcript_file || { url: "", file_type: "" },
-      audio_file: req.body.audio_file || { url: "", file_type: "" }
     };
+    const hasTranscript = req.body.transcript_file?.url && req.body.transcript_file?.file_type;
+    const hasAudio = req.body.audio_file?.url && req.body.audio_file?.file_type;
+    if (hasTranscript) requestBody.transcript_file = req.body.transcript_file;
+    if (hasAudio) requestBody.audio_file = req.body.audio_file;
 
     console.log("调用 Coze API...", { url: COZE_API_URL });
 
@@ -79,15 +81,50 @@ export default async function handler(req, res) {
       });
     }
 
-    // 解析响应（stream_run 可能返回 JSON 或流式内容）
+    // 解析响应：stream_run 返回 SSE，需解析 events
     const text = await response.text();
-    let data;
+    let data = { raw: text };
+    let sseError = null;
+    let sseOutput = null;
+
     try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      data = { raw: text };
+      const lines = (text || "").split("\n");
+      let currentData = null;
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const json = JSON.parse(line.slice(6));
+            if (json.type === "error") {
+              sseError = json.error_msg || json.message || JSON.stringify(json);
+            } else if (json.output) {
+              sseOutput = typeof json.output === "string" ? json.output : JSON.stringify(json.output);
+            } else if (json.data?.output) {
+              sseOutput = typeof json.data.output === "string" ? json.data.output : JSON.stringify(json.data.output);
+            } else if (json.students && json.reports) {
+              sseOutput = json;
+            }
+          } catch { /* 非 JSON 或解析失败，忽略 */ }
+        }
+      }
+    } catch { /* 解析失败保留 raw */ }
+
+    if (sseError) {
+      console.error("Coze 工作流错误:", sseError);
+      return res.status(200).json({
+        success: false,
+        message: "分析失败",
+        error: sseError,
+        data: data
+      });
     }
-    console.log("API 响应成功");
+
+    if (sseOutput) {
+      try {
+        data = typeof sseOutput === "string" ? JSON.parse(sseOutput) : sseOutput;
+      } catch {
+        data = { output: sseOutput };
+      }
+    }
 
     res.status(200).json({
       success: true,
