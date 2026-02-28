@@ -6,12 +6,125 @@ const COZE_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjcwMTQyY2UwLWFiZGQtNDFhMy04Yzk0
 
 const steps = ["选择信息", "上传文件", "提交成功"];
 
+/** 从 Coze API 响应中解析 students + reports */
+function parseCozeOutput(data) {
+  if (!data) return null;
+  if (data.students && data.reports) return { students: data.students, reports: data.reports };
+  const output = data.data?.output ?? data.output;
+  if (typeof output === "string") {
+    try {
+      const parsed = JSON.parse(output);
+      if (parsed.students && parsed.reports) return parsed;
+    } catch { /* ignore */ }
+  }
+  if (output && typeof output === "object" && output.students && output.reports) return output;
+  return null;
+}
+
 const toBase64 = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(reader.result.split(",")[1]);
   reader.onerror = reject;
   reader.readAsDataURL(file);
 });
+
+const TABS = [
+  { key: "teacher", label: "老师版", icon: "📋" },
+  { key: "parent", label: "家长版", icon: "👨‍👩‍👧" },
+  { key: "child", label: "孩子版", icon: "🎮" },
+];
+
+function ReportResult({ result, teacher, files, note, onReset }) {
+  const [activeTab, setActiveTab] = useState("teacher");
+  const reports = result?.reports ?? {};
+  const students = result?.students ?? [];
+  const hasReports = reports.teacher || reports.parent || reports.child;
+
+  if (!hasReports) {
+    return (
+      <div style={{ textAlign: "center", padding: "16px 0" }}>
+        <div style={{ fontSize: 64, marginBottom: 16, animation: "pop 0.5s ease both" }}>🎉</div>
+        <div style={{ fontFamily: "'Nunito'", fontSize: 20, fontWeight: 900, color: "#2D2D3A", marginBottom: 8 }}>上传成功！</div>
+        <div style={{ fontSize: 13, color: "#BBAACC", lineHeight: 1.7, marginBottom: 24 }}>
+          AI 正在分析课堂内容，请稍候查看结果
+        </div>
+        <div style={{ background: "#FAF5FF", borderRadius: 16, padding: "16px 20px", marginBottom: 24, textAlign: "left" }}>
+          <div style={{ fontSize: 12, color: "#886699", fontWeight: 700, marginBottom: 10 }}>本次上传信息</div>
+          {[
+            { label: "老师", val: teacher },
+            { label: "文件数", val: `${files.length} 个` },
+            note && { label: "备注", val: note },
+          ].filter(Boolean).map(item => (
+            <div key={item.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "5px 0", borderBottom: "1px solid #F0E8FF" }}>
+              <span style={{ color: "#BBAACC" }}>{item.label}</span>
+              <span style={{ color: "#444", fontWeight: 600 }}>{item.val}</span>
+            </div>
+          ))}
+        </div>
+        <button className="btn-primary" onClick={onReset} style={{
+          width: "100%", padding: "13px", borderRadius: 14, border: "none",
+          background: "linear-gradient(135deg, #FF6B6B, #FF8E53)",
+          color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'Nunito'", boxShadow: "0 4px 16px rgba(255,107,107,0.3)",
+        }}>继续上传下一节课</button>
+      </div>
+    );
+  }
+
+  const content = reports[activeTab] || "";
+
+  return (
+    <div style={{ padding: "12px 0", textAlign: "left" }}>
+      <div style={{ fontSize: 48, marginBottom: 12, textAlign: "center", animation: "pop 0.5s ease both" }}>🎉</div>
+      <div style={{ fontFamily: "'Nunito'", fontSize: 18, fontWeight: 900, color: "#2D2D3A", marginBottom: 16, textAlign: "center" }}>分析完成</div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {TABS.map(({ key, label, icon }) => {
+          const isActive = activeTab === key;
+          const hasContent = reports[key];
+          return (
+            <button key={key} onClick={() => setActiveTab(key)} style={{
+              flex: 1, padding: "10px 8px", borderRadius: 12, border: "none",
+              background: isActive ? "linear-gradient(135deg, #FF6B6B, #FF8E53)" : "#FAF5FF",
+              color: isActive ? "white" : hasContent ? "#886699" : "#CCBBDD",
+              fontSize: 12, fontWeight: 700, cursor: "pointer",
+              fontFamily: "'Nunito'",
+            }}>{icon} {label}</button>
+          );
+        })}
+      </div>
+
+      <div style={{
+        background: "#FDFAFF", borderRadius: 14, padding: "16px",
+        border: "1px solid #EEE5F5", maxHeight: 320, overflowY: "auto",
+        fontSize: 13, lineHeight: 1.7, color: "#444", whiteSpace: "pre-wrap", wordBreak: "break-word",
+      }}>
+        {content || "暂无内容"}
+      </div>
+
+      {students.length > 0 && (
+        <div style={{ marginTop: 14, background: "#FAF5FF", borderRadius: 14, padding: "14px", border: "1px solid #EEE5F5" }}>
+          <div style={{ fontSize: 12, color: "#886699", fontWeight: 700, marginBottom: 8 }}>学员概览</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {students.map((s, i) => (
+              <span key={i} style={{
+                padding: "4px 10px", borderRadius: 20, background: "white",
+                fontSize: 12, color: "#444", border: "1px solid #EEE5F5",
+              }}>{s.name} · {s.speaking_count ?? "-"} 次 · {s.performance ?? "-"}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button className="btn-primary" onClick={onReset} style={{
+        width: "100%", padding: "13px", borderRadius: 14, border: "none", marginTop: 16,
+        background: "linear-gradient(135deg, #FF6B6B, #FF8E53)",
+        color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+        fontFamily: "'Nunito'", boxShadow: "0 4px 16px rgba(255,107,107,0.3)",
+      }}>继续上传下一节课</button>
+    </div>
+  );
+}
 
 export default function App() {
   const [step, setStep] = useState(0);
@@ -21,6 +134,7 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [result, setResult] = useState(null); // { students, reports: { teacher, parent, child } }
   const fileRef = useRef();
 
   const canNext = teacher !== "";
@@ -76,6 +190,9 @@ export default function App() {
       });
 
       if (!res.ok) throw new Error(`请求失败: ${res.status}`);
+      const json = await res.json();
+      const parsed = parseCozeOutput(json?.data ?? json);
+      setResult(parsed);
       setStep(2);
     } catch (err) {
       setError("提交失败，请重试。错误：" + err.message);
@@ -85,7 +202,7 @@ export default function App() {
   };
 
   const reset = () => {
-    setStep(0); setTeacher(""); setNote(""); setFiles([]); setError("");
+    setStep(0); setTeacher(""); setNote(""); setFiles([]); setError(""); setResult(null);
   };
 
   const getFileIcon = (file) => {
@@ -270,34 +387,7 @@ export default function App() {
           )}
 
           {step === 2 && (
-            <div style={{ textAlign: "center", padding: "16px 0" }}>
-              <div style={{ fontSize: 64, marginBottom: 16, animation: "pop 0.5s ease both" }}>🎉</div>
-              <div style={{ fontFamily: "'Nunito'", fontSize: 20, fontWeight: 900, color: "#2D2D3A", marginBottom: 8 }}>上传成功！</div>
-              <div style={{ fontSize: 13, color: "#BBAACC", lineHeight: 1.7, marginBottom: 24 }}>
-                AI 正在分析课堂内容<br />
-                预计 <strong style={{ color: "#FF6B6B" }}>3-5分钟</strong> 后自动写入数据库<br />
-                完成后会在企业微信通知你 📩
-              </div>
-              <div style={{ background: "#FAF5FF", borderRadius: 16, padding: "16px 20px", marginBottom: 24, textAlign: "left" }}>
-                <div style={{ fontSize: 12, color: "#886699", fontWeight: 700, marginBottom: 10 }}>本次上传信息</div>
-                {[
-                  { label: "老师", val: teacher },
-                  { label: "文件数", val: `${files.length} 个` },
-                  note && { label: "备注", val: note },
-                ].filter(Boolean).map(item => (
-                  <div key={item.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "5px 0", borderBottom: "1px solid #F0E8FF" }}>
-                    <span style={{ color: "#BBAACC" }}>{item.label}</span>
-                    <span style={{ color: "#444", fontWeight: 600 }}>{item.val}</span>
-                  </div>
-                ))}
-              </div>
-              <button className="btn-primary" onClick={reset} style={{
-                width: "100%", padding: "13px", borderRadius: 14, border: "none",
-                background: "linear-gradient(135deg, #FF6B6B, #FF8E53)",
-                color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
-                fontFamily: "'Nunito'", boxShadow: "0 4px 16px rgba(255,107,107,0.3)",
-              }}>继续上传下一节课</button>
-            </div>
+            <ReportResult result={result} teacher={teacher} files={files} note={note} onReset={reset} />
           )}
         </div>
 
