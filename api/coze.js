@@ -1,7 +1,8 @@
 // ==================== 配置区 ====================
-const COZE_API_URL = "https://api.coze.cn/v1/workflows/run";
-const COZE_API_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjcwMTQyY2UwLWFiZGQtNDFhMy04Yzk0LWM3NGU5ZGNmNWJiNyJ9.eyJpc3MiOiJodHRwczovL2FwaS5jb3plLmNuIiwiYXVkIjpbIno4dWhaWXh4MGZSbVdaWkRuSmk2eVBRR3JENUp2WE9hIl0sImV4cCI6ODIxMDI2Njg3Njc5OSwiaWF0IjoxNzcyMjQ4MDk1LCJzdWIiOiJzcGlmZmU6Ly9hcGkuY296ZS5jbi93b3JrbG9hZF9pZGVudGl0eS9pZDo3NjExNzM5MDY4NTkzODY0NzE0Iiwic3JjIjoiaW5ib3VuZF9hdXRoX2FjY2Vzc190b2tlbl9pZDo3NjExNzQ3NjExMzk3MDYyNjk0In0.OUo-Sytyr3_wuULWt9SMny-5FsoGIwZzlOuuNw8QuM7E_YfZEbKyjUhfjRokp1nhC7nFVf_-a5S0cBqtUOylDbrn5qosOoIUoNlnvKcAnxTcjYhAm51FxvGVeCiE_s7Wwij3CY-IbV4XVUcuXkE1FnkcdJKSpVxn4RypQxPZfZ_ZFTwdFsfdD6eaNI77sVfYrExaNUDD4tPLXLhT3DIU_Vwxqc_A5Mui9AUUow3iAjc9ZGFWsqgJW_YGl9xDy3pdigxpTUP750PlfK6YzBiwJ5kfBx1sSQtTe9z2-j--Cx5_a3SkeDMlO27h_mshz3yrxVGco-FH0pDJAxilSvmrfQ";
-const WORKFLOW_ID = "7611736638871322633";
+// Coze.site 发布的工作流接口（从 Coze 工作流部署页面的 API 文档获取）
+const COZE_API_URL = "https://cpyhzxdrj8.coze.site/stream_run";
+// 优先使用 Vercel 环境变量，便于在控制台配置 Token
+const COZE_API_TOKEN = process.env.COZE_API_TOKEN || "eyJhbGciOiJSUzI1NiIsImtpZCI6IjcwMTQyY2UwLWFiZGQtNDFhMy04Yzk0LWM3NGU5ZGNmNWJiNyJ9.eyJpc3MiOiJodHRwczovL2FwaS5jb3plLmNuIiwiYXVkIjpbIno4dWhaWXh4MGZSbVdaWkRuSmk2eVBRR3JENUp2WE9hIl0sImV4cCI6ODIxMDI2Njg3Njc5OSwiaWF0IjoxNzcyMjY5MzE4LCJzdWIiOiJzcGlmZmU6Ly9hcGkuY296ZS5jbi93b3JrbG9hZF9pZGVudGl0eS9pZDo3NjExNzM5MDY4NTkzODY0NzE0Iiwic3JjIjoiaW5ib3VuZF9hdXRoX2FjY2Vzc190b2tlbl9pZDo3NjExODM4NzY0NjU4MTk2NTI2In0.Nv9ROkhIT79-D3vy169UXA2Lmo1560sANxzt5iwzHauu5KDDdBaXm4BL-GzeerrUFTz6aCiouVFfFojtdj_8ka_5tGvC9G7etEpNImN0qLZwOdQFQ2mgGgMkFUEdg1_-i0FHg72TebLpXV2Ei9up-5S-jiUXLU300v6dt-4yQ3rTJv7Vd1k6vShk_o4j_hwLJrQVftNveJPg_0wgnrIa-gzzwkBw405i7ampD8zPpDTDHdVTGKQcflfOm4zCVQ_fj6B8A_CT4UtUPKKwoAAi-7YibYsQeAKFeIs9wk8n4OLneX3kOLuh5TQHpBijc3Ccj-xOJ-dmg4vbz6wltHnv9A";
 
 // ==================== 参数验证 ====================
 function validateRequestBody(body) {
@@ -43,18 +44,16 @@ export default async function handler(req, res) {
   });
 
   try {
-    // 构建 Coze API 请求
+    // Coze.site stream_run 直接传参，无需 workflow_id 包装
     const requestBody = {
-      workflow_id: WORKFLOW_ID,
-      parameters: req.body
+      teacher_name: req.body.teacher_name,
+      remark: req.body.remark || "",
+      transcript_file: req.body.transcript_file || { url: "", file_type: "" },
+      audio_file: req.body.audio_file || { url: "", file_type: "" }
     };
 
-    console.log("调用 Coze API...", {
-      url: COZE_API_URL,
-      workflow_id: WORKFLOW_ID
-    });
+    console.log("调用 Coze API...", { url: COZE_API_URL });
 
-    // 调用 Coze API
     const response = await fetch(COZE_API_URL, {
       method: "POST",
       headers: {
@@ -80,11 +79,16 @@ export default async function handler(req, res) {
       });
     }
 
-    // 解析响应
-    const data = await response.json();
+    // 解析响应（stream_run 可能返回 JSON 或流式内容）
+    const text = await response.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text };
+    }
     console.log("API 响应成功");
 
-    // 返回成功结果
     res.status(200).json({
       success: true,
       message: "分析成功",
