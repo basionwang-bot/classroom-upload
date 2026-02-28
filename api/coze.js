@@ -1,7 +1,7 @@
 // ==================== 配置区 ====================
 const COZE_API_URL = "https://api.coze.cn/v1/workflows/run";
-const COZE_API_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjcwMTQyY2UwLWFiZGQtNDFhMy04Yzk0LWM3NGU5ZGNmNWJiNyJ9.eyJpc3MiOiJodHRwczovL2FwaS5jb3plLmNuIiwiYXVkIjpbIno4dWhaWXh4MGZSbVdaWkRuSmk2eVBRR3JENUp2WE9hIl0sImV4cCI6ODIxMDI2Njg3Njc5OSwiaWF0IjoxNzcyMjQ4MDk1LCJzdWIiOiJzcGlmZmU6Ly9hcGkuY296ZS5jbi93b3JrbG9hZF9pZGVudGl0eS9pZDo3NjExNzM5MDY4NTkzODY0NzE0Iiwic3JjIjoiaW5ib3VuZF9hdXRoX2FjY2Vzc190b2tlbl9pZDo3NjExNzQ3NjExMzk3MDYyNjk0In0.OUo-Sytyr3_wuULWt9SMny-5FsoGIwZzlOuuNw8QuM7E_YfZEbKyjUhfjRokp1nhC7nFVf_-a5S0cBqtUOylDbrn5qosOoIUoNlnvKcAnxTcjYhAm51FxvGVeCiE_s7Wwij3CY-IbV4XVUcuXkE1FnkcdJKSpVxn4RypQxPZfZ_ZFTwdFsfdD6eaNI77sVfYrExaNUDD4tPLXLhT3DIU_Vwxqc_A5Mui9AUUow3iAjc9ZGFWsqgJW_YGl9xDy3pdigxpTUP750PlfK6YzBiwJ5kfBx1sSQtTe9z2-j--Cx5_a3SkeDMlO27h_mshz3yrxVGco-FH0pDJAxilSvmrfQ";  // ⚠️ 替换为实际的 API Token
-const WORKFLOW_ID = "7611736638871322633";      // ⚠️ 替换为实际的工作流 ID
+const COZE_API_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjcwMTQyY2UwLWFiZGQtNDFhMy04Yzk0LWM3NGU5ZGNmNWJiNyJ9.eyJpc3MiOiJodHRwczovL2FwaS5jb3plLmNuIiwiYXVkIjpbIno4dWhaWXh4MGZSbVdaWkRuSmk2eVBRR3JENUp2WE9hIl0sImV4cCI6ODIxMDI2Njg3Njc5OSwiaWF0IjoxNzcyMjQ4MDk1LCJzdWIiOiJzcGlmZmU6Ly9hcGkuY296ZS5jbi93b3JrbG9hZF9pZGVudGl0eS9pZDo3NjExNzM5MDY4NTkzODY0NzE0Iiwic3JjIjoiaW5ib3VuZF9hdXRoX2FjY2Vzc190b2tlbl9pZDo3NjExNzQ3NjExMzk3MDYyNjk0In0.OUo-Sytyr3_wuULWt9SMny-5FsoGIwZzlOuuNw8QuM7E_YfZEbKyjUhfjRokp1nhC7nFVf_-a5S0cBqtUOylDbrn5qosOoIUoNlnvKcAnxTcjYhAm51FxvGVeCiE_s7Wwij3CY-IbV4XVUcuXkE1FnkcdJKSpVxn4RypQxPZfZ_ZFTwdFsfdD6eaNI77sVfYrExaNUDD4tPLXLhT3DIU_Vwxqc_A5Mui9AUUow3iAjc9ZGFWsqgJW_YGl9xDy3pdigxpTUP750PlfK6YzBiwJ5kfBx1sSQtTe9z2-j--Cx5_a3SkeDMlO27h_mshz3yrxVGco-FH0pDJAxilSvmrfQ";
+const WORKFLOW_ID = "7611736638871322633";
 
 // ==================== 参数验证 ====================
 function validateRequestBody(body) {
