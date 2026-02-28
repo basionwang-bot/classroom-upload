@@ -1,21 +1,19 @@
 import { useState, useRef } from "react";
 
-const TEACHERS = ["张老师", "李老师", "王老师", "刘老师", "陈老师"];
-const CLASSES = ["少儿编程A班", "少儿编程B班", "少儿编程C班", "进阶班", "体验班"];
+const TEACHERS = ["大白老师", "小七老师", "多多老师", "晨晨老师"];
 
 const steps = ["选择信息", "上传文件", "提交成功"];
 
 export default function App() {
   const [step, setStep] = useState(0);
   const [teacher, setTeacher] = useState("");
-  const [className, setClassName] = useState("");
   const [note, setNote] = useState("");
   const [files, setFiles] = useState([]);
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const fileRef = useRef();
 
-  const canNext = teacher && className;
+  const canNext = teacher !== "";
   const canSubmit = files.length > 0;
 
   const handleDrop = (e) => {
@@ -41,7 +39,7 @@ export default function App() {
   };
 
   const reset = () => {
-    setStep(0); setTeacher(""); setClassName("");
+    setStep(0); setTeacher("");
     setNote(""); setFiles([]);
   };
 
@@ -93,9 +91,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0, marginBottom: 28 }}>
           {steps.map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center" }}>
-              <div style={{
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-              }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                 <div style={{
                   width: 32, height: 32, borderRadius: "50%",
                   background: i < step ? "#FF6B6B" : i === step ? "linear-gradient(135deg, #FF6B6B, #FF8E53)" : "#F0EEF5",
@@ -151,22 +147,6 @@ export default function App() {
               </div>
 
               <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 12, color: "#BBAACC", fontWeight: 600, marginBottom: 8, letterSpacing: 1 }}>选择班级</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {CLASSES.map(c => (
-                    <div key={c} className="select-opt" onClick={() => setClassName(c)} style={{
-                      padding: "8px 16px", borderRadius: 40, fontSize: 13, fontWeight: 600,
-                      background: className === c ? "#6C63FF" : "#F5F5FF",
-                      color: className === c ? "white" : "#7766AA",
-                      border: `1.5px solid ${className === c ? "#6C63FF" : "#E8E5F5"}`,
-                      boxShadow: className === c ? "0 4px 12px rgba(108,99,255,0.3)" : "none",
-                      transition: "all 0.2s",
-                    }}>{c}</div>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 12, color: "#BBAACC", fontWeight: 600, marginBottom: 8, letterSpacing: 1 }}>备注（可选）</div>
                 <textarea
                   value={note}
@@ -205,7 +185,7 @@ export default function App() {
               <div style={{ marginBottom: 6 }}>
                 <div style={{ fontFamily: "'Nunito'", fontSize: 17, fontWeight: 800, color: "#2D2D3A" }}>上传课堂文件</div>
                 <div style={{ fontSize: 12, color: "#BBAACC", marginTop: 4 }}>
-                  {teacher} · {className}
+                  {teacher}
                   {note && <span> · {note.slice(0, 15)}{note.length > 15 ? "..." : ""}</span>}
                 </div>
               </div>
@@ -306,7 +286,6 @@ export default function App() {
                 <div style={{ fontSize: 12, color: "#886699", fontWeight: 700, marginBottom: 10 }}>本次上传信息</div>
                 {[
                   { label: "老师", val: teacher },
-                  { label: "班级", val: className },
                   { label: "文件数", val: `${files.length} 个` },
                   note && { label: "备注", val: note },
                 ].filter(Boolean).map(item => (
