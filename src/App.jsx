@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis } from "recharts";
 
 const TEACHERS = ["大白老师", "小七老师", "多多老师", "晨晨老师"];
 const COZE_API_URL = "/api/coze";
@@ -6,19 +7,309 @@ const COZE_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjcwMTQyY2UwLWFiZGQtNDFhMy04Yzk0
 
 const steps = ["选择信息", "上传文件", "提交成功"];
 
-/** 从 Coze API 响应中解析 students + reports */
+/** 从 Coze API 响应中解析，支持新版（结构化）和旧版（students+reports） */
 function parseCozeOutput(data) {
   if (!data) return null;
-  if (data.students && data.reports) return { students: data.students, reports: data.reports };
-  const output = data.data?.output ?? data.output;
-  if (typeof output === "string") {
-    try {
-      const parsed = JSON.parse(output);
-      if (parsed.students && parsed.reports) return parsed;
-    } catch { /* ignore */ }
+  const tryParse = (obj) => {
+    if (!obj) return null;
+    if (typeof obj === "string") {
+      try {
+        return JSON.parse(obj);
+      } catch {
+        return null;
+      }
+    }
+    if (typeof obj === "object" && obj !== null) {
+      if (obj.students && obj.reports) return obj;
+      if (obj.data?.output) return tryParse(obj.data.output);
+      if (obj.output) return tryParse(obj.output);
+    }
+    return null;
+  };
+  let parsed = tryParse(data);
+  if (!parsed && data.students && data.reports) parsed = data;
+  if (!parsed) parsed = tryParse(data.data?.output ?? data.output);
+  return parsed;
+}
+
+/** 是否为结构化报告（新版） */
+function isRichReport(result) {
+  if (!result || typeof result !== "object") return false;
+  const arr = (v) => Array.isArray(v) && v.length > 0;
+  return arr(result.emotionData) || arr(result.moments) || arr(result.knowledgePoints);
+}
+
+const STATUS_LABELS = { mastered: "已掌握", learning: "学习中", new: "新内容" };
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div style={{ background: "rgba(255,255,255,0.95)", padding: "8px 12px", borderRadius: 8, fontSize: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", border: "1px solid #EEE5F5" }}>
+      <div style={{ fontWeight: 600, marginBottom: 4, color: "#333" }}>{label}</div>
+      {payload.map(p => (
+        <div key={p.name} style={{ color: p.color }}>{p.name}: {p.value}</div>
+      ))}
+    </div>
+  );
+}
+
+function RichReport({ result, teacher, files, note, onReset, onBackToQueue }) {
+  const [activeTab, setActiveTab] = useState("parent"); // parent | teacher | child
+  const isEmpty = !result || (typeof result === "object" && Object.keys(result).length === 0);
+  const summary = result?.summary ?? {};
+  const reports = result?.reports ?? {};
+  const emotionData = Array.isArray(result?.emotionData) ? result.emotionData : [];
+  const skillData = Array.isArray(result?.skillData) ? result.skillData : [];
+  const moments = Array.isArray(result?.moments) ? result.moments : [];
+  const knowledgePoints = Array.isArray(result?.knowledgePoints) ? result.knowledgePoints : [];
+  const students = Array.isArray(result?.students) ? result.students : [];
+
+  const briefKeys = { parent: "parentBrief", teacher: "teacherBrief", child: "childBrief" };
+  const currentBrief = summary[briefKeys[activeTab]] ?? "";
+
+  const cardStyle = {
+    background: "white",
+    borderRadius: 14,
+    padding: "16px 18px",
+    boxShadow: "0 4px 20px rgba(0,0,0,0.06)",
+    border: "1px solid #EEE5F5",
+  };
+
+  const hasAnyContent = summary.date != null || summary.todayScore != null || summary.parentBrief || summary.teacherBrief || summary.childBrief ||
+    emotionData.length > 0 || skillData.length > 0 || moments.length > 0 || knowledgePoints.length > 0 || students.length > 0 ||
+    reports.parent || reports.teacher || reports.child;
+
+  if (isEmpty || !hasAnyContent) {
+    return (
+      <div style={{ maxWidth: 860, margin: "0 auto", width: "100%", padding: "12px 0", textAlign: "left" }}>
+        <div style={{ fontSize: 48, marginBottom: 12, textAlign: "center", animation: "pop 0.5s ease both" }}>🎉</div>
+        <div style={{ fontFamily: "'Nunito'", fontSize: 18, fontWeight: 900, color: "#2D2D3A", marginBottom: 16, textAlign: "center" }}>分析完成</div>
+        <div style={{ textAlign: "center", padding: "32px 16px", color: "#BBAACC", fontSize: 14 }}>暂无数据</div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          {onBackToQueue && (
+            <button onClick={onBackToQueue} style={{
+              flex: 1, padding: "13px", borderRadius: 14, border: "1.5px solid #EEE5F5",
+              background: "white", color: "#886699", fontSize: 14, fontWeight: 600, cursor: "pointer",
+            }}>← 分析队列</button>
+          )}
+          <button className="btn-primary" onClick={onReset} style={{
+            flex: 1, padding: "13px", borderRadius: 14, border: "none",
+            background: "linear-gradient(135deg, #FF6B6B, #FF8E53)",
+            color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+            fontFamily: "'Nunito'", boxShadow: "0 4px 16px rgba(255,107,107,0.3)",
+          }}>继续上传</button>
+        </div>
+      </div>
+    );
   }
-  if (output && typeof output === "object" && output.students && output.reports) return output;
-  return null;
+
+  return (
+    <div style={{ maxWidth: 860, margin: "0 auto", width: "100%", padding: "12px 0", textAlign: "left" }}>
+      <div style={{ fontSize: 48, marginBottom: 12, textAlign: "center", animation: "pop 0.5s ease both" }}>🎉</div>
+      <div style={{ fontFamily: "'Nunito'", fontSize: 18, fontWeight: 900, color: "#2D2D3A", marginBottom: 16, textAlign: "center" }}>分析完成</div>
+
+      {/* 1. 摘要卡 */}
+      {(summary.date != null || summary.todayScore != null || summary.parentBrief || summary.teacherBrief || summary.childBrief) && (
+        <div style={{ ...cardStyle, marginBottom: 16 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            {summary.date != null && (
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#2D2D3A" }}>{summary.date}</span>
+            )}
+            {summary.todayScore != null && (
+              <span style={{ fontSize: 14, color: "#886699", fontWeight: 600 }}>今日得分 {summary.todayScore}</span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            {["parent", "teacher", "child"].map(key => {
+              const isActive = activeTab === key;
+              return (
+                <button key={key} onClick={() => setActiveTab(key)} style={{
+                  padding: "8px 14px", borderRadius: 10, border: "none",
+                  background: isActive ? "linear-gradient(135deg, #FF6B6B, #FF8E53)" : "#FAF5FF",
+                  color: isActive ? "white" : "#886699",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "'Nunito'",
+                }}>
+                  {key === "parent" ? "家长版" : key === "teacher" ? "老师版" : "孩子版"}
+                </button>
+              );
+            })}
+          </div>
+          {currentBrief && (
+            <div style={{ fontSize: 13, lineHeight: 1.7, color: "#444", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {currentBrief}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Row 1: 情绪变化 + 关键时刻 */}
+      {(emotionData.length > 0 || moments.length > 0) && (
+        <div className="rich-grid-row" style={{
+          display: "grid",
+          gridTemplateColumns: emotionData.length > 0 && moments.length > 0 ? "1.4fr 1fr" : "1fr",
+          gap: 16,
+          marginBottom: 16,
+        }}>
+          {emotionData.length > 0 && (
+            <div className="rich-grid-cell" style={{ ...cardStyle, minHeight: 0, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 14 }}>📈 情绪变化</div>
+              <div style={{ fontSize: 11, color: "#BBAACC", marginBottom: 12 }}>课堂情绪采样</div>
+              <ResponsiveContainer width="100%" height={160}>
+                <LineChart data={emotionData}>
+                  <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#bbb" }} axisLine={false} tickLine={false} />
+                  <YAxis hide domain={[0, 100]} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Line type="monotone" dataKey="专注度" stroke="#6C63FF" strokeWidth={2.5} dot={false} />
+                  <Line type="monotone" dataKey="积极性" stroke="#FF6584" strokeWidth={2.5} dot={false} strokeDasharray="5 3" />
+                </LineChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#888" }}>
+                  <div style={{ width: 16, height: 2, background: "#6C63FF", borderRadius: 1 }} />专注度
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#888" }}>
+                  <div style={{ width: 16, height: 2, borderRadius: 1, borderTop: "2px dashed #FF6584", background: "none" }} />积极性
+                </div>
+              </div>
+            </div>
+          )}
+          {moments.length > 0 && (
+            <div className="rich-grid-cell" style={{ ...cardStyle, minHeight: 0, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 14 }}>⚡ 关键时刻</div>
+              <div style={{ fontSize: 11, color: "#BBAACC", marginBottom: 12 }}>AI 捕捉的重要节点</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {moments.map((m, i) => (
+                  <div key={i} style={{ padding: "10px 12px", background: "#FAF5FF", borderRadius: 10, border: "1px solid #EEE5F5" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      {m.time != null && <span style={{ fontSize: 11, color: "#BBAACC", fontWeight: 600 }}>{m.time}</span>}
+                      {m.type && <span style={{ fontSize: 12, fontWeight: 700, color: "#886699" }}>{m.type}</span>}
+                    </div>
+                    {m.text && <div style={{ fontSize: 13, lineHeight: 1.6, color: "#444" }}>{m.text}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Row 2: 能力雷达 + 三端报告 */}
+      {(skillData.length > 0 || reports.parent || reports.teacher || reports.child) && (
+        <div className="rich-grid-row" style={{
+          display: "grid",
+          gridTemplateColumns: skillData.length > 0 && (reports.parent || reports.teacher || reports.child) ? "1fr 1.4fr" : "1fr",
+          gap: 16,
+          marginBottom: 16,
+        }}>
+          {skillData.length > 0 && (
+            <div className="rich-grid-cell" style={{ ...cardStyle, minHeight: 0, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 14 }}>🎯 能力雷达</div>
+              <div style={{ fontSize: 11, color: "#BBAACC", marginBottom: 8 }}>综合能力评估</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <RadarChart data={skillData}>
+                  <PolarGrid stroke="#f0f0f0" />
+                  <PolarAngleAxis dataKey="skill" tick={{ fontSize: 10, fill: "#888" }} />
+                  <Radar dataKey="score" stroke="#6C63FF" fill="#6C63FF" fillOpacity={0.2} strokeWidth={2} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          {(reports.parent || reports.teacher || reports.child) && (
+            <div className="rich-grid-cell" style={{ ...cardStyle, minHeight: 0, minWidth: 0 }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                {TABS.map(({ key, label, icon }) => {
+                  const isActive = activeTab === key;
+                  const hasContent = reports[key];
+                  return (
+                    <button key={key} onClick={() => setActiveTab(key)} style={{
+                      flex: 1, padding: "10px 8px", borderRadius: 12, border: "none",
+                      background: isActive ? "linear-gradient(135deg, #FF6B6B, #FF8E53)" : "#FAF5FF",
+                      color: isActive ? "white" : hasContent ? "#886699" : "#CCBBDD",
+                      fontSize: 12, fontWeight: 700, cursor: "pointer",
+                      fontFamily: "'Nunito'",
+                    }}>{icon} {label}</button>
+                  );
+                })}
+              </div>
+              <div style={{
+                background: "#FDFAFF", borderRadius: 12, padding: "14px",
+                border: "1px solid #EEE5F5", maxHeight: 240, overflowY: "auto",
+                fontSize: 13, lineHeight: 1.7, color: "#444", whiteSpace: "pre-wrap", wordBreak: "break-word",
+              }}>
+                {(reports[activeTab] ?? "") || "暂无内容"}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 4. 知识点掌握 */}
+      {knowledgePoints.length > 0 && (
+        <div style={{ ...cardStyle, marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: "#886699", fontWeight: 700, marginBottom: 10 }}>知识点掌握</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {knowledgePoints.map((kp, i) => (
+              <div key={i} style={{ padding: "10px 12px", background: "#FAF5FF", borderRadius: 10, border: "1px solid #EEE5F5" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#444" }}>{kp.name ?? "-"}</span>
+                  <span style={{ fontSize: 11, color: "#886699", fontWeight: 600 }}>
+                    {STATUS_LABELS[kp.status] ?? kp.status ?? "-"}
+                  </span>
+                </div>
+                {kp.progress != null && (
+                  <div style={{ height: 6, background: "#EEE5F5", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%", background: "linear-gradient(90deg, #FF6B6B, #FF8E53)",
+                      width: `${Math.min(100, Math.max(0, Number(kp.progress) || 0))}%`,
+                      borderRadius: 3,
+                    }} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 5. 学员概览 */}
+      {students.length > 0 && (
+        <div style={{ ...cardStyle, marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: "#886699", fontWeight: 700, marginBottom: 10 }}>学员概览</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {students.map((s, i) => (
+              <span key={s.name ? `${s.name}-${i}` : i} style={{
+                padding: "6px 12px", borderRadius: 20, background: "#FAF5FF",
+                fontSize: 12, color: "#444", border: "1px solid #EEE5F5",
+                display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+              }}>
+                <span>{s.name ?? "-"}</span>
+                <span style={{ color: "#BBAACC" }}>· {s.speaking_count ?? "-"} 次</span>
+                {(s.performance != null && s.performance !== "") && <span style={{ color: "#886699", fontWeight: 600 }}>· {s.performance}</span>}
+                {(s.emotion_trend != null && s.emotion_trend !== "") && <span style={{ color: "#6C63FF", fontSize: 11 }}>· {s.emotion_trend}</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 6. 底部按钮 */}
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        {onBackToQueue && (
+          <button onClick={onBackToQueue} style={{
+            flex: 1, padding: "13px", borderRadius: 14, border: "1.5px solid #EEE5F5",
+            background: "white", color: "#886699", fontSize: 14, fontWeight: 600, cursor: "pointer",
+          }}>← 分析队列</button>
+        )}
+        <button className="btn-primary" onClick={onReset} style={{
+          flex: onBackToQueue ? 1 : 1, padding: "13px", borderRadius: 14, border: "none",
+          background: "linear-gradient(135deg, #FF6B6B, #FF8E53)",
+          color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'Nunito'", boxShadow: "0 4px 16px rgba(255,107,107,0.3)",
+        }}>继续上传</button>
+      </div>
+    </div>
+  );
 }
 
 const toBase64 = (file) => new Promise((resolve, reject) => {
@@ -313,9 +604,17 @@ export default function App() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
         @keyframes pop { 0%{transform:scale(0.5);opacity:0;} 60%{transform:scale(1.15);} 100%{transform:scale(1);opacity:1;} }
+        @media (max-width: 600px) {
+          .rich-grid-row { grid-template-columns: 1fr !important; }
+          .rich-grid-cell { min-width: 0; width: 100%; }
+        }
       `}</style>
 
-      <div style={{ width: "100%", maxWidth: 440 }}>
+      <div style={{
+        width: "100%",
+        maxWidth: (step === 2 && isRichReport(result)) || (view === "queue" && selectedQueueItem?.status === "completed" && isRichReport(selectedQueueItem?.result))
+          ? 900 : 440,
+      }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <div style={{ fontSize: 32, marginBottom: 6 }}>🎓</div>
           <div style={{ fontFamily: "'Nunito'", fontSize: 20, fontWeight: 900, color: "#2D2D3A" }}>课堂记录上传</div>
@@ -374,6 +673,15 @@ export default function App() {
                     background: "white", color: "#886699", fontSize: 14, fontWeight: 600, cursor: "pointer",
                   }}>← 返回队列</button>
                 </div>
+              ) : isRichReport(selectedQueueItem.result) ? (
+                <RichReport
+                  result={selectedQueueItem.result}
+                  teacher={selectedQueueItem.teacher}
+                  files={[]}
+                  note={selectedQueueItem.note}
+                  onReset={() => setSelectedQueueItem(null)}
+                  onBackToQueue={() => setSelectedQueueItem(null)}
+                />
               ) : (
                 <ReportResult
                   result={selectedQueueItem.result}
@@ -515,14 +823,25 @@ export default function App() {
           )}
 
           {step === 2 && (
-            <ReportResult
-              result={result}
-              teacher={teacher}
-              files={files}
-              note={note}
-              onReset={reset}
-              onBackToQueue={() => { setView("queue"); setSelectedQueueItem(null); setStep(0); reset(); }}
-            />
+            isRichReport(result) ? (
+              <RichReport
+                result={result}
+                teacher={teacher}
+                files={files}
+                note={note}
+                onReset={reset}
+                onBackToQueue={() => { setView("queue"); setSelectedQueueItem(null); setStep(0); reset(); }}
+              />
+            ) : (
+              <ReportResult
+                result={result}
+                teacher={teacher}
+                files={files}
+                note={note}
+                onReset={reset}
+                onBackToQueue={() => { setView("queue"); setSelectedQueueItem(null); setStep(0); reset(); }}
+              />
+            )
           )}
           </>
           )}
